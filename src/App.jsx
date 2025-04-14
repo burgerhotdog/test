@@ -1,4 +1,3 @@
-// App.jsx
 import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
 import {
   Container,
