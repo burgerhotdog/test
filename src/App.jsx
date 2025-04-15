@@ -385,11 +385,6 @@ function App() {
     
     // Wait for fade-out animation to complete
     setTimeout(() => {
-      // If we have cards in the current pack, add them to history
-      if (cards.length > 0) {
-        setCardHistory(prevHistory => [...prevHistory, [...cards]]);
-      }
-      
       // Reset states
       setPackState('sealed');
       setCards([]);
@@ -402,7 +397,7 @@ function App() {
         setIsTransitioning(false);
       }, 100);
     }, 500); // Match this with the CSS transition duration
-  }, [cards]);
+  }, []);
 
   // Get cards for a new pack with proper rarity distribution - memoized for performance
   const getPackCards = useCallback(() => {
@@ -522,6 +517,8 @@ function App() {
       setTimeout(() => {
         setPackState('opened');
         setLoading(false);
+        // Add the newly opened pack to history once cards are revealed
+        setCardHistory(prevHistory => [...prevHistory, [...newCards]]);
       }, 1500);
     }, 50);
   }, [packState, loading, getPackCards, swipeProgress]);
@@ -731,16 +728,32 @@ function App() {
     // Only add listeners if we're in the sealed pack state
     if (packState === 'sealed') {
       // Add global mouse event listeners
-      document.addEventListener('mousemove', handleSwipeMove);
-      document.addEventListener('mouseup', handleSwipeEnd);
+      window.addEventListener('mousemove', handleSwipeMove);
+      window.addEventListener('mouseup', handleSwipeEnd);
       
       // Cleanup function
       return () => {
-        document.removeEventListener('mousemove', handleSwipeMove);
-        document.removeEventListener('mouseup', handleSwipeEnd);
+        window.removeEventListener('mousemove', handleSwipeMove);
+        window.removeEventListener('mouseup', handleSwipeEnd);
       };
     }
   }, [packState, handleSwipeMove, handleSwipeEnd]);
+
+  // Effect to add a global mouseup event listener for fail-safe reset
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsMouseDown(false);
+      setSwipeStarted(false);
+    };
+    
+    // Add global mouseup handler that will reset states regardless of component state
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, []);
 
   // Handler for mouse leaving the pack
   const handleMouseLeavePack = useCallback(() => {
@@ -768,22 +781,6 @@ function App() {
     // Only set isNearEdge to true if also near the left edge
     setIsNearEdge(Math.abs(y - edgePosition) <= tolerance && isNearLeftEdge);
   }, [packState, loading, swipeStarted]);
-
-  // Effect to add a global mouseup event listener for fail-safe reset
-  useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      setIsMouseDown(false);
-      setSwipeStarted(false);
-    };
-    
-    // Add global mouseup handler that will reset states regardless of component state
-    document.addEventListener('mouseup', handleGlobalMouseUp);
-    
-    // Cleanup
-    return () => {
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, []);
 
   // Handle opening and closing the history dialog
   const handleOpenHistoryDialog = () => {
@@ -817,12 +814,7 @@ function App() {
             {packState === 'sealed' && (
               <PackContainer
                 ref={packRef}
-                onMouseDown={handleMouseDown}
-                onMouseMove={(e) => {
-                  handleSwipeMove(e);
-                  handleMouseMoveOverPack(e);
-                }}
-                onMouseUp={handleSwipeEnd}
+                onMouseMove={handleMouseMoveOverPack}
                 whileTap={{ scale: 0.98 }}
                 onMouseEnter={() => setIsHovering(true)}
                 onMouseLeave={handleMouseLeavePack}
@@ -1294,14 +1286,14 @@ function App() {
                     No pack history yet. Open some packs to see them here!
                   </Typography>
                 ) : (
-                  cardHistory.map((packCards, packIndex) => (
+                  [...cardHistory].reverse().map((packCards, packIndex) => (
                     <Box key={`pack-${packIndex}`} sx={{ mb: 3 }}>
                       <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', borderBottom: '2px solid #4B79A1', pb: 1, mb: 2 }}>
                         Pack #{cardHistory.length - packIndex}
                       </Typography>
                       <Grid container spacing={2} justifyContent="center">
                         {packCards.map((card, cardIndex) => (
-                          <Grid item key={`history-${packIndex}-${cardIndex}`} xs={6} sm={4} md={2} lg={2}>
+                          <Grid key={`history-${packIndex}-${cardIndex}`} size={{ xs: 6, sm: 4, md: 2.4 }}>
                             <Card sx={{ 
                               boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                               borderRadius: '8px',
