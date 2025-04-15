@@ -9,9 +9,15 @@ import {
   Stack,
   CircularProgress,
   Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  IconButton,
+  Grid,
 } from '@mui/material';
 import { motion, useAnimation } from 'framer-motion';
 import { styled } from '@mui/system';
+import CloseIcon from '@mui/icons-material/Close';
 
 // Styled components for the app
 const AppBackground = styled(Box)({
@@ -76,6 +82,20 @@ const ActionButton = styled(Button)({
   background: 'linear-gradient(45deg, #FF416C, #FF4B2B)',
   '&:hover': {
     background: 'linear-gradient(45deg, #FF4B2B, #FF416C)',
+    boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
+  }
+});
+
+const HistoryButton = styled(Button)({
+  padding: '12px 24px',
+  borderRadius: '50px',
+  fontWeight: 600,
+  textTransform: 'none',
+  fontSize: '16px',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+  background: 'linear-gradient(45deg, #4B79A1, #283E51)',
+  '&:hover': {
+    background: 'linear-gradient(45deg, #283E51, #4B79A1)',
     boxShadow: '0 6px 16px rgba(0,0,0,0.2)',
   }
 });
@@ -343,6 +363,8 @@ function App() {
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [isNearEdge, setIsNearEdge] = useState(false);
   const [showNewPackButton, setShowNewPackButton] = useState(false);
+  const [cardHistory, setCardHistory] = useState([]);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   
   const packRef = useRef(null);
   const cardConstraintsRef = useRef(null);
@@ -363,6 +385,11 @@ function App() {
     
     // Wait for fade-out animation to complete
     setTimeout(() => {
+      // If we have cards in the current pack, add them to history
+      if (cards.length > 0) {
+        setCardHistory(prevHistory => [...prevHistory, [...cards]]);
+      }
+      
       // Reset states
       setPackState('sealed');
       setCards([]);
@@ -375,7 +402,7 @@ function App() {
         setIsTransitioning(false);
       }, 100);
     }, 500); // Match this with the CSS transition duration
-  }, []);
+  }, [cards]);
 
   // Get cards for a new pack with proper rarity distribution - memoized for performance
   const getPackCards = useCallback(() => {
@@ -758,6 +785,15 @@ function App() {
     };
   }, []);
 
+  // Handle opening and closing the history dialog
+  const handleOpenHistoryDialog = () => {
+    setHistoryDialogOpen(true);
+  };
+
+  const handleCloseHistoryDialog = () => {
+    setHistoryDialogOpen(false);
+  };
+
   return (
     <AppBackground 
       onMouseDown={handleMouseDown}
@@ -1111,13 +1147,24 @@ function App() {
                       zIndex: 10
                     }}
                   >
-                    <ActionButton
-                      variant="contained"
-                      onClick={resetPack}
-                      size="medium"
-                    >
-                      Open Another Pack
-                    </ActionButton>
+                    <Stack direction="row" spacing={2} justifyContent="center">
+                      <ActionButton
+                        variant="contained"
+                        onClick={resetPack}
+                        size="medium"
+                      >
+                        Open Another Pack
+                      </ActionButton>
+                      {cardHistory.length > 0 && (
+                        <HistoryButton
+                          variant="contained"
+                          onClick={handleOpenHistoryDialog}
+                          size="medium"
+                        >
+                          View History
+                        </HistoryButton>
+                      )}
+                    </Stack>
                   </motion.div>
                 )}
               </Box>
@@ -1187,17 +1234,101 @@ function App() {
                 </Box>
                 
                 <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0, width: '100%' }}>
-                  <ActionButton
-                    variant="contained"
-                    onClick={resetPack}
-                    size="medium"
-                  >
-                    Open Another Pack
-                  </ActionButton>
+                  <Stack direction="row" spacing={2} justifyContent="center">
+                    <ActionButton
+                      variant="contained"
+                      onClick={resetPack}
+                      size="medium"
+                    >
+                      Open Another Pack
+                    </ActionButton>
+                    {cardHistory.length > 0 && (
+                      <HistoryButton
+                        variant="contained"
+                        onClick={handleOpenHistoryDialog}
+                        size="medium"
+                      >
+                        View History
+                      </HistoryButton>
+                    )}
+                  </Stack>
                 </Box>
               </Stack>
             )}
           </Box>
+
+          {/* Card History Dialog */}
+          <Dialog
+            open={historyDialogOpen}
+            onClose={handleCloseHistoryDialog}
+            maxWidth="lg"
+            fullWidth
+            aria-labelledby="card-history-dialog-title"
+            PaperProps={{
+              sx: {
+                background: 'radial-gradient(circle, #ffffff 30%, #f0f8ff 70%, #c4e0f3 100%)',
+                overflowY: 'auto',
+                maxHeight: '90vh',
+              }
+            }}
+          >
+            <DialogTitle id="card-history-dialog-title" sx={{ pb: 1 }}>
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Typography variant="h5" component="div" fontWeight="bold">
+                  Opened Packs History
+                </Typography>
+                <IconButton
+                  edge="end"
+                  color="inherit"
+                  onClick={handleCloseHistoryDialog}
+                  aria-label="close"
+                >
+                  <CloseIcon />
+                </IconButton>
+              </Box>
+            </DialogTitle>
+            <DialogContent dividers>
+              <Stack spacing={4}>
+                {cardHistory.length === 0 ? (
+                  <Typography align="center" sx={{ py: 4 }}>
+                    No pack history yet. Open some packs to see them here!
+                  </Typography>
+                ) : (
+                  cardHistory.map((packCards, packIndex) => (
+                    <Box key={`pack-${packIndex}`} sx={{ mb: 3 }}>
+                      <Typography variant="h6" gutterBottom sx={{ fontWeight: 'bold', borderBottom: '2px solid #4B79A1', pb: 1, mb: 2 }}>
+                        Pack #{cardHistory.length - packIndex}
+                      </Typography>
+                      <Grid container spacing={2} justifyContent="center">
+                        {packCards.map((card, cardIndex) => (
+                          <Grid item key={`history-${packIndex}-${cardIndex}`} xs={6} sm={4} md={2} lg={2}>
+                            <Card sx={{ 
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                              borderRadius: '8px',
+                              overflow: 'hidden',
+                              height: '100%'
+                            }}>
+                              <CardMedia
+                                component="img"
+                                image={getCardImageUrl(card)}
+                                alt={String(card)}
+                                loading="lazy"
+                                sx={{ 
+                                  width: '100%',
+                                  objectFit: 'contain'
+                                }}
+                                draggable="false"
+                              />
+                            </Card>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </Box>
+                  ))
+                )}
+              </Stack>
+            </DialogContent>
+          </Dialog>
         </MainContent>
       </AppContainer>
     </AppBackground>
