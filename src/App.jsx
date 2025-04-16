@@ -365,6 +365,7 @@ function App() {
   const [showNewPackButton, setShowNewPackButton] = useState(false);
   const [cardHistory, setCardHistory] = useState([]);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [touchId, setTouchId] = useState(null); // Add state for tracking touch ID
   
   const packRef = useRef(null);
   const cardConstraintsRef = useRef(null);
@@ -391,11 +392,12 @@ function App() {
       setCurrentCardIndex(0);
       setShowAllCards(false);
       setShowNewPackButton(false);
+      setSwipeProgress(0); // Reset swipe progress
       
       // End transition after a short delay to ensure state updates are processed
       setTimeout(() => {
         setIsTransitioning(false);
-      }, 100);
+      }, 300); // Increased delay to ensure smooth transition
     }, 500); // Match this with the CSS transition duration
   }, []);
 
@@ -529,8 +531,13 @@ function App() {
     
     // Get position relative to the pack element
     const packRect = packRef.current.getBoundingClientRect();
-    const y = e.clientY - packRect.top;
-    const x = e.clientX - packRect.left;
+    const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : null);
+    const clientY = e.clientY || (e.touches && e.touches[0] ? e.touches[0].clientY : null);
+    
+    if (clientX === null || clientY === null) return;
+    
+    const y = clientY - packRect.top;
+    const x = clientX - packRect.left;
     
     // Check if swipe is starting near the opening edge (around 15% of pack height)
     const edgePosition = packRect.height * 0.15;
@@ -544,9 +551,14 @@ function App() {
       setSwipeStarted(true);
       setSwipeProgress(0);
       setSwipePosition({ 
-        x: e.clientX - packRect.left, 
+        x: clientX - packRect.left, 
         y: edgePosition // Lock to the edge line
       });
+      
+      // If this is a touch event, store the touch identifier
+      if (e.touches && e.touches[0]) {
+        setTouchId(e.touches[0].identifier);
+      }
     }
   }, [packState, loading]);
   
@@ -557,19 +569,57 @@ function App() {
     setIsMouseDown(true);
   }, [packState, loading]);
   
+  // Handle touch start
+  const handleTouchStart = useCallback((e) => {
+    if (packState !== 'sealed' || loading) return;
+    setIsMouseDown(true);
+    handleSwipeStart(e);
+  }, [packState, loading, handleSwipeStart]);
+  
   // Handle mouse move, checks for both regular swipe and entering-from-outside swipe
   const handleSwipeMove = useCallback((e) => {
     if (packState !== 'sealed' || !packRef.current) return;
     
-    const packRect = packRef.current.getBoundingClientRect();
-    const y = e.clientY - packRect.top;
-    const x = e.clientX - packRect.left;
+    // Handle touch events - find the right touch point using stored identifier
+    let clientX, clientY;
+    if (e.touches) {
+      // For touchmove, find the touch point that matches our stored ID
+      if (touchId !== null) {
+        for (let i = 0; i < e.touches.length; i++) {
+          if (e.touches[i].identifier === touchId) {
+            clientX = e.touches[i].clientX;
+            clientY = e.touches[i].clientY;
+            break;
+          }
+        }
+        // If we couldn't find the touch, use the first one as fallback
+        if (clientX === undefined && e.touches.length > 0) {
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+        }
+      } else if (e.touches.length > 0) {
+        // No stored ID, use the first touch
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      }
+    } else {
+      // Mouse event
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
     
-    // Check if mouse is within pack boundaries
+    // If we don't have valid coordinates, exit
+    if (clientX === undefined || clientY === undefined) return;
+    
+    const packRect = packRef.current.getBoundingClientRect();
+    const y = clientY - packRect.top;
+    const x = clientX - packRect.left;
+    
+    // Check if mouse/touch is within pack boundaries
     const isWithinPackX = x >= 0 && x <= packRect.width;
     const isWithinPackY = y >= 0 && y <= packRect.height;
     
-    // Check if mouse is near the edge line
+    // Check if mouse/touch is near the edge line
     const edgePosition = packRect.height * 0.15;
     const tolerance = 30; // pixels
     const isNearEdge = Math.abs(y - edgePosition) <= tolerance;
@@ -594,7 +644,7 @@ function App() {
         openPack();
       }
     } 
-    // Case 2: Mouse is down, within pack, near edge, and near left edge - start swipe
+    // Case 2: Mouse/touch is down, within pack, near edge, and near left edge - start swipe
     else if (isMouseDown && isWithinPackX && isWithinPackY && isNearEdge && isNearLeftEdge) {
       setSwipeStarted(true);
       // For progress, use current x position
@@ -604,13 +654,19 @@ function App() {
         x: Math.max(0, Math.min(x, packRect.width)), 
         y: edgePosition // Lock to the edge line
       });
+      
+      // If this is a touch event, store the identifier
+      if (e.touches && e.touches.length > 0) {
+        setTouchId(e.touches[0].identifier);
+      }
     }
-  }, [swipeStarted, packState, isMouseDown, openPack]);
+  }, [swipeStarted, packState, isMouseDown, openPack, touchId]);
   
-  // Handle mouse up, cleanup
+  // Handle mouse/touch up, cleanup
   const handleSwipeEnd = useCallback(() => {
     setSwipeStarted(false);
     setIsMouseDown(false);
+    setTouchId(null);
     
     if (swipeStarted && swipeProgress > 0.9) {
       // If swiped more than 90% across, open the pack
@@ -730,11 +786,17 @@ function App() {
       // Add global mouse event listeners
       window.addEventListener('mousemove', handleSwipeMove);
       window.addEventListener('mouseup', handleSwipeEnd);
+      window.addEventListener('touchmove', handleSwipeMove, { passive: false });
+      window.addEventListener('touchend', handleSwipeEnd);
+      window.addEventListener('touchcancel', handleSwipeEnd);
       
       // Cleanup function
       return () => {
         window.removeEventListener('mousemove', handleSwipeMove);
         window.removeEventListener('mouseup', handleSwipeEnd);
+        window.removeEventListener('touchmove', handleSwipeMove);
+        window.removeEventListener('touchend', handleSwipeEnd);
+        window.removeEventListener('touchcancel', handleSwipeEnd);
       };
     }
   }, [packState, handleSwipeMove, handleSwipeEnd]);
@@ -744,14 +806,25 @@ function App() {
     const handleGlobalMouseUp = () => {
       setIsMouseDown(false);
       setSwipeStarted(false);
+      setTouchId(null);
     };
     
-    // Add global mouseup handler that will reset states regardless of component state
+    const handleGlobalTouchEnd = () => {
+      setIsMouseDown(false);
+      setSwipeStarted(false);
+      setTouchId(null);
+    };
+    
+    // Add global mouseup/touchend handlers that will reset states regardless of component state
     window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('touchend', handleGlobalTouchEnd);
+    window.addEventListener('touchcancel', handleGlobalTouchEnd);
     
     // Cleanup
     return () => {
       window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('touchend', handleGlobalTouchEnd);
+      window.removeEventListener('touchcancel', handleGlobalTouchEnd);
     };
   }, []);
 
@@ -791,9 +864,18 @@ function App() {
     setHistoryDialogOpen(false);
   };
 
+  // Fix for MUI button focus trap
+  const handleButtonBlur = (e) => {
+    // Force blur on the target to ensure it doesn't retain focus
+    if (e.currentTarget) {
+      e.currentTarget.blur();
+    }
+  };
+
   return (
     <AppBackground 
       onMouseDown={handleMouseDown}
+      onTouchStart={handleTouchStart}
       style={appCursorStyle}
     >
       <AppContainer maxWidth="lg">
@@ -815,6 +897,8 @@ function App() {
               <PackContainer
                 ref={packRef}
                 onMouseMove={handleMouseMoveOverPack}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleSwipeMove}
                 whileTap={{ scale: 0.98 }}
                 onMouseEnter={() => setIsHovering(true)}
                 onMouseLeave={handleMouseLeavePack}
@@ -1144,6 +1228,7 @@ function App() {
                         variant="contained"
                         onClick={resetPack}
                         size="medium"
+                        onBlur={handleButtonBlur}
                       >
                         Open Another Pack
                       </ActionButton>
@@ -1152,6 +1237,7 @@ function App() {
                           variant="contained"
                           onClick={handleOpenHistoryDialog}
                           size="medium"
+                          onBlur={handleButtonBlur}
                         >
                           View History
                         </HistoryButton>
@@ -1231,6 +1317,7 @@ function App() {
                       variant="contained"
                       onClick={resetPack}
                       size="medium"
+                      onBlur={handleButtonBlur}
                     >
                       Open Another Pack
                     </ActionButton>
@@ -1239,6 +1326,7 @@ function App() {
                         variant="contained"
                         onClick={handleOpenHistoryDialog}
                         size="medium"
+                        onBlur={handleButtonBlur}
                       >
                         View History
                       </HistoryButton>
@@ -1256,6 +1344,7 @@ function App() {
             maxWidth="lg"
             fullWidth
             aria-labelledby="card-history-dialog-title"
+            keepMounted={false}
             PaperProps={{
               sx: {
                 background: 'radial-gradient(circle, #ffffff 30%, #f0f8ff 70%, #c4e0f3 100%)',
@@ -1274,6 +1363,7 @@ function App() {
                   color="inherit"
                   onClick={handleCloseHistoryDialog}
                   aria-label="close"
+                  onBlur={handleButtonBlur}
                 >
                   <CloseIcon />
                 </IconButton>
